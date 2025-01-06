@@ -1,0 +1,194 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.multioutput import MultiOutputClassifier
+from sklearn.model_selection import train_test_split
+
+# Charger et entraîner le modèle
+def load_and_train_model(filepath):
+    data = pd.read_csv(filepath, sep=';', header=1)
+    data.columns = data.columns.str.strip()
+    
+    # Prétraitement
+    data = pd.get_dummies(data, columns=['Gender', 'Severity', 'Treatment_Plan', 'Diagnosis'], drop_first=True)
+    data['Symptoms'] = data[['Symptom_1', 'Symptom_2', 'Symptom_3']].apply(lambda x: ', '.join(x), axis=1)
+    data = pd.get_dummies(data, columns=['Symptoms'], drop_first=True)
+    data[['Blood_Pressure_Systolic', 'Blood_Pressure_Diastolic']] = data['Blood_Pressure_mmHg'].str.split('/', expand=True)
+    data['Blood_Pressure_Systolic'] = pd.to_numeric(data['Blood_Pressure_Systolic'])
+    data['Blood_Pressure_Diastolic'] = pd.to_numeric(data['Blood_Pressure_Diastolic'])
+    data = data.drop(columns=['Patient_ID', 'Blood_Pressure_mmHg', 'Symptom_1', 'Symptom_2', 'Symptom_3'])
+    
+    # Sélection des caractéristiques et des cibles
+    X = data.drop(columns=[col for col in data.columns if 'Diagnosis_' in col or 'Severity_' in col or 'Treatment_Plan_' in col])
+    y = data[[col for col in data.columns if 'Diagnosis_' in col or 'Severity_' in col or 'Treatment_Plan_' in col]]
+    
+    # Normalisation des données
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    
+    # Diviser les données
+    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.3, random_state=42)
+    
+    # Entraîner le modèle
+    log_reg = LogisticRegression(max_iter=200)
+    multi_target_model = MultiOutputClassifier(log_reg, n_jobs=-1)
+    multi_target_model.fit(X_train, y_train)
+    
+    return multi_target_model, scaler, X.columns, y.columns
+
+# Charger les données et entraîner le modèle
+file_path = "C:/Users/monga/OneDrive/Documents/CMI/L2/S3/INFO/disease_diagnosis.csv"
+model, scaler, feature_columns, target_columns = load_and_train_model(file_path)
+
+# Extraire les symptômes uniques
+def extract_symptoms(filepath):
+    data = pd.read_csv(filepath, sep=';', header=1)
+    data.columns = data.columns.str.strip()
+    symptoms = pd.unique(data[['Symptom_1', 'Symptom_2', 'Symptom_3']].values.ravel())
+    return [symptom for symptom in symptoms if pd.notna(symptom)]
+
+# Obtenir la liste des symptômes
+symptoms_list = extract_symptoms(file_path)
+
+# Fonction pour vérifier si la valeur est un nombre valide
+def is_valid_number(value):
+    try:
+        float(value)  # Essayer de convertir en float
+        return True
+    except ValueError:
+        return False
+
+# Fonction de prédiction
+def predict():
+    try:
+        # Collecte des entrées et validation
+        age = entry_age.get()
+        print(f"Age saisi: {age}")  # Débogage
+        if not is_valid_number(age):
+            messagebox.showerror("Erreur", "Veuillez entrer un âge valide (nombre).")
+            return
+        age = float(age)
+        
+        gender = 1 if combo_gender.get() == "Male" else 0
+        
+        heart_rate = entry_heart_rate.get()
+        print(f"Heart rate saisi: {heart_rate}")  # Débogage
+        if not is_valid_number(heart_rate):
+            messagebox.showerror("Erreur", "Veuillez entrer un rythme cardiaque valide (nombre).")
+            return
+        heart_rate = float(heart_rate)
+        
+        body_temp = entry_body_temp.get()
+        print(f"Body temperature saisi: {body_temp}")  # Débogage
+        if not is_valid_number(body_temp):
+            messagebox.showerror("Erreur", "Veuillez entrer une température corporelle valide (nombre).")
+            return
+        body_temp = float(body_temp)
+        
+        blood_pressure = entry_blood_pressure.get()  # Extrait la valeur complète (ex: "132/91")
+        print(f"Blood pressure saisi: {blood_pressure}")  # Débogage
+        if not blood_pressure or '/' not in blood_pressure:
+            messagebox.showerror("Erreur", "Veuillez entrer la pression artérielle au format 'systolique/diastolique' (ex : 120/80).")
+            return
+        try:
+            bp_systolic, bp_diastolic = map(float, blood_pressure.split('/'))
+        except ValueError:
+            messagebox.showerror("Erreur", "Les valeurs de la pression artérielle doivent être numériques et séparées par '/'.")
+            return
+        
+        oxygen_saturation = entry_oxygen_saturation.get()
+        print(f"Oxygen saturation saisi: {oxygen_saturation}")  # Débogage
+        if not is_valid_number(oxygen_saturation):
+            messagebox.showerror("Erreur", "Veuillez entrer une saturation en oxygène valide (nombre).")
+            return
+        oxygen_saturation = float(oxygen_saturation)
+        
+        symptom_1 = combo_symptom_1.get()
+        symptom_2 = combo_symptom_2.get()
+        symptom_3 = combo_symptom_3.get()
+        print(f"Symptom 1: {symptom_1}, Symptom 2: {symptom_2}, Symptom 3: {symptom_3}")  # Débogage
+        if not symptom_1 or not symptom_2 or not symptom_3:
+            messagebox.showerror("Erreur", "Veuillez sélectionner tous les symptômes.")
+            return
+
+        # Préparer les données
+        input_data = pd.DataFrame({
+            'Age': [age],
+            'Gender_Male': [gender],
+            'Heart_Rate_bpm': [heart_rate],
+            'Body_Temperature_C': [body_temp],
+            'Blood_Pressure_Systolic': [bp_systolic],
+            'Blood_Pressure_Diastolic': [bp_diastolic],
+            'Oxygen_Saturation_%': [oxygen_saturation],
+        })
+
+        # Ajouter les colonnes manquantes
+        missing_cols = set(feature_columns) - set(input_data.columns)
+        missing_data = pd.DataFrame(0, index=input_data.index, columns=missing_cols)
+        input_data = pd.concat([input_data, missing_data], axis=1)
+
+        # Normaliser et prédire
+        input_data_scaled = scaler.transform(input_data)
+        prediction = model.predict(input_data_scaled)
+        prediction_df = pd.DataFrame(prediction, columns=target_columns)
+
+        # Afficher les résultats
+        result_text.set(prediction_df.to_string(index=False))
+    except ValueError:
+        messagebox.showerror("Erreur", "Veuillez entrer des valeurs valides (nombres pour les champs numériques).")
+
+# Interface Tkinter
+root = tk.Tk()
+root.title("Prédiction de Maladie et Recommandation de Traitement")
+
+# Champs d'entrée
+tk.Label(root, text="Age:").grid(row=0, column=0, padx=10, pady=5)
+entry_age = tk.Entry(root)
+entry_age.grid(row=0, column=1, padx=10, pady=5)
+
+tk.Label(root, text="Gender:").grid(row=1, column=0, padx=10, pady=5)
+combo_gender = ttk.Combobox(root, values=["Male", "Female"])
+combo_gender.grid(row=1, column=1, padx=10, pady=5)
+
+tk.Label(root, text="Heart Rate (bpm):").grid(row=2, column=0, padx=10, pady=5)
+entry_heart_rate = tk.Entry(root)
+entry_heart_rate.grid(row=2, column=1, padx=10, pady=5)
+
+tk.Label(root, text="Body Temperature (°C):").grid(row=3, column=0, padx=10, pady=5)
+entry_body_temp = tk.Entry(root)
+entry_body_temp.grid(row=3, column=1, padx=10, pady=5)
+
+tk.Label(root, text="Blood Pressure (mmHg):").grid(row=4, column=0, padx=10, pady=5)
+entry_blood_pressure = tk.Entry(root)
+entry_blood_pressure.grid(row=4, column=1, padx=10, pady=5)
+
+tk.Label(root, text="Oxygen Saturation (%):").grid(row=5, column=0, padx=10, pady=5)
+entry_oxygen_saturation = tk.Entry(root)
+entry_oxygen_saturation.grid(row=5, column=1, padx=10, pady=5)
+
+# Choix des symptômes
+tk.Label(root, text="Symptom 1:").grid(row=6, column=0, padx=10, pady=5)
+combo_symptom_1 = ttk.Combobox(root, values=symptoms_list)
+combo_symptom_1.grid(row=6, column=1, padx=10, pady=5)
+
+tk.Label(root, text="Symptom 2:").grid(row=7, column=0, padx=10, pady=5)
+combo_symptom_2 = ttk.Combobox(root, values=symptoms_list)
+combo_symptom_2.grid(row=7, column=1, padx=10, pady=5)
+
+tk.Label(root, text="Symptom 3:").grid(row=8, column=0, padx=10, pady=5)
+combo_symptom_3 = ttk.Combobox(root, values=symptoms_list)
+combo_symptom_3.grid(row=8, column=1, padx=10, pady=5)
+
+# Bouton de prédiction
+btn_predict = tk.Button(root, text="Prédire", command=predict)
+btn_predict.grid(row=9, column=0, columnspan=2, pady=10)
+
+# Affichage des résultats
+result_text = tk.StringVar()
+label_result = tk.Label(root, textvariable=result_text, justify="left", wraplength=400)
+label_result.grid(row=10, column=0, columnspan=2, padx=10, pady=10)
+
+# Lancer l'application
+root.mainloop()
