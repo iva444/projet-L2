@@ -1,0 +1,143 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.multioutput import MultiOutputClassifier
+from sklearn.metrics import accuracy_score, classification_report
+
+# Charger le fichier CSV avec le bon séparateur
+fichier = "C:/Users/monga/OneDrive/Documents/CMI/L2/S3/INFO/disease_diagnosis.csv"
+
+try:
+    # Lire les données dans un DataFrame pandas
+    data = pd.read_csv(fichier, sep=';', header=1)  # header=1 signifie que la deuxième ligne est l'en-tête
+    print("Fichier chargé avec succès !")
+except FileNotFoundError:
+    print(f"Le fichier {fichier} n'a pas été trouvé.")
+    exit()
+
+# Vérifier les colonnes du DataFrame
+print("Colonnes présentes dans le DataFrame :")
+print(data.columns)
+
+# Vérifier un aperçu des premières lignes
+print("\nAperçu des premières lignes du fichier :")
+print(data.head())
+
+# Nettoyer les espaces et les caractères invisibles dans les noms de colonnes
+data.columns = data.columns.str.strip()
+
+# 1. Prétraitement des variables catégorielles
+# Encodage avec One-Hot Encoding pour 'Gender', 'Severity', 'Treatment_Plan', et 'Diagnosis'
+data = pd.get_dummies(data, columns=['Gender', 'Severity', 'Treatment_Plan', 'Diagnosis'], drop_first=True)
+
+# 2. Gestion des colonnes de symptômes
+# Combiner les symptômes en une seule colonne
+data['Symptoms'] = data[['Symptom_1', 'Symptom_2', 'Symptom_3']].apply(lambda x: ', '.join(x), axis=1)
+
+# Encoder les combinaisons uniques de symptômes avec One-Hot Encoding
+data = pd.get_dummies(data, columns=['Symptoms'], drop_first=True)
+
+# Supprimer les colonnes d'origine des symptômes
+data = data.drop(columns=['Symptom_1', 'Symptom_2', 'Symptom_3'])
+
+# 3. Conversion de la colonne "Blood_Pressure_mmHg" en deux colonnes
+data[['Blood_Pressure_Systolic', 'Blood_Pressure_Diastolic']] = data['Blood_Pressure_mmHg'].str.split('/', expand=True)
+data['Blood_Pressure_Systolic'] = pd.to_numeric(data['Blood_Pressure_Systolic'])
+data['Blood_Pressure_Diastolic'] = pd.to_numeric(data['Blood_Pressure_Diastolic'])
+
+# Supprimer la colonne originale
+data = data.drop(columns=['Blood_Pressure_mmHg'])
+
+# Vérification après prétraitement
+print("\nAperçu des données après prétraitement :")
+print(data.head())
+
+# 4. Sélection des caractéristiques et des cibles
+X = data.drop(columns=['Patient_ID'])  # Supprimer les identifiants inutiles
+y = data[[col for col in data.columns if 'Diagnosis_' in col or 'Severity_' in col or 'Treatment_Plan_' in col]]  # Variables cibles
+
+# 5. Normalisation des données
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# 6. Diviser les données en ensemble d'entraînement et de test
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.3, random_state=42)
+
+# 7. Entraîner un modèle de régression logistique multi-sortie
+log_reg = LogisticRegression(max_iter=200)
+multi_target_model = MultiOutputClassifier(log_reg, n_jobs=-1)
+multi_target_model.fit(X_train, y_train)
+
+# 8. Faire des prédictions
+y_pred = multi_target_model.predict(X_test)
+
+# 9. Évaluation du modèle
+print("\nPrédictions pour Diagnosis, Severity et Treatment Plan :")
+print("\nPrédictions :")
+print(y_pred)
+
+print("\nAccuracy :")
+# Calculer l'accuracy pour chaque sortie
+for i, target in enumerate(y.columns):
+    print(f"Accuracy for {target}: {accuracy_score(y_test.iloc[:, i], y_pred[:, i])}")
+
+print("\nClassification Report :")
+# Afficher le rapport de classification pour chaque sortie
+for i, target in enumerate(y.columns):
+    print(f"\nClassification Report for {target}:")
+    print(classification_report(y_test.iloc[:, i], y_pred[:, i]))
+
+# Fonction pour préparer les nouvelles données afin qu'elles correspondent aux colonnes du jeu de données d'entraînement
+def prepare_new_data(new_data, data_columns):
+    """
+    Fonction pour préparer les nouvelles données afin qu'elles correspondent aux colonnes du jeu de données d'entraînement.
+    new_data : liste des caractéristiques physiques d'un patient (ex : [age, taille, poids, cholesterol, glucose, etc.])
+    data_columns : colonnes attendues par le modèle (celles du jeu de données d'entraînement)
+    """
+    # Créer un dictionnaire avec les nouvelles données
+    new_data_dict = dict(zip(data_columns, new_data))
+    
+    # Ajouter des colonnes manquantes et les initialiser à 0 (valeurs manquantes)
+    missing_columns = set(data_columns) - set(new_data_dict.keys())
+    for col in missing_columns:
+        new_data_dict[col] = 0
+    
+    # Retourner les données préparées sous forme de liste
+    return [list(new_data_dict.values())]
+
+# Fonction pour prédire de nouvelles données
+def predict_new_data(new_data, data_columns):
+    """
+    Fonction pour prédire la maladie, la sévérité et le traitement à partir de nouvelles données physiques.
+    new_data : liste des caractéristiques physiques d'un patient
+    data_columns : liste des colonnes attendues par le modèle
+    """
+    # Préparer les nouvelles données pour correspondre aux colonnes d'entraînement
+    prepared_data = prepare_new_data(new_data, data_columns)
+    
+    # Normaliser les nouvelles données en utilisant le même scaler que pour les données d'entraînement
+    new_data_scaled = scaler.transform(prepared_data)
+    
+    # Faire la prédiction avec le modèle entraîné
+    prediction = multi_target_model.predict(new_data_scaled)
+    
+    # Afficher les résultats de la prédiction
+    print("\nPrédictions pour la nouvelle entrée :")
+    for i, target in enumerate(y.columns):
+        print(f"{target}: {prediction[0][i]}")
+
+# Exemple de données d'entrée pour un nouveau patient
+new_patient_data = [
+    45,   # Age (par exemple)
+    160,  # Taille (en cm)
+    70,   # Poids (en kg)
+    120,  # Cholesterol
+    80,   # Glucose
+    110,  # Pression artérielle systolique
+    70    # Pression artérielle diastolique
+]
+
+# Appeler la fonction pour effectuer la prédiction
+predict_new_data(new_patient_data, X.columns)
